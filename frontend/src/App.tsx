@@ -1,9 +1,17 @@
 import { useState } from 'react'
-import { Search, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight } from 'lucide-react'
-import { Input } from '@/components/ui/input'
+import { TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   LineChart,
   Line,
@@ -14,15 +22,9 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 
-// Mock stock data
-const mockStockData = {
-  name: 'Apple Inc.',
-  ticker: 'AAPL',
-  price: 178.72,
-  change: 2.34,
-  changePercent: 1.33,
-  isPositive: true,
-}
+import { useSecurity } from './hooks/useSecurityHooks'
+import { availableTickers } from './constant'
+import { formatBillions } from './lib/utils'
 
 // Mock chart data (6 months)
 const mockChartData = [
@@ -34,17 +36,48 @@ const mockChartData = [
   { date: 'Jan', price: 178.72 },
 ]
 
-// Mock financial metrics
-const mockMetrics = {
-  ebitda: { value: '123.9B', status: 'healthy' as const },
-  peRatio: { value: '28.4', status: 'moderate' as const },
-  debtToEquity: { value: '1.87', status: 'moderate' as const },
-  currentRatio: { value: '0.94', status: 'warning' as const },
-  grossMargin: { value: '45.9%', status: 'healthy' as const },
-  operatingMargin: { value: '29.8%', status: 'healthy' as const },
-  freeCashFlow: { value: '99.6B', status: 'healthy' as const },
-  revenueGrowth: { value: '-2.8%', status: 'warning' as const },
-}
+const getMetricCards = (data: Record<string, unknown>) => [
+    {
+        label: "EBITDA",
+        value: formatBillions(data.ebitda as number),
+        status: 'healthy' as const
+    },
+    {
+        label: "P/E Ratio",
+        value: data.trailingPE ? Math.abs(data.trailingPE as number).toFixed(2) : null,
+        status: 'healthy' as const
+    },
+    {
+        label: "Debt to Equity",
+        value: data.debtToEquity,
+        status: 'healthy' as const
+    },
+    {
+        label: "Current Ratio",
+        value: data.currentRatio,
+        status: 'moderate' as const
+    },
+    {
+        label: "Gross Margin",
+        value: data.grossMargins ? `${((data.grossMargins as number) * 100).toFixed(2)}%` : null,
+        status: 'healthy' as const
+    },
+    {
+        label: "Operating Margin",
+        value: data.operatingMargins ? `${Math.abs((data.operatingMargins as number) * 100).toFixed(2)}%` : null,
+        status: 'healthy' as const
+    },
+    {
+        label: "Free Cash Flow",
+        value: formatBillions(data.freeCashflow as number),
+        status: 'healthy' as const
+    },
+    {
+        label: "Revenue Growth (YoY)",
+        value: data.revenueGrowth ? `${Math.abs((data.revenueGrowth as number) * 100).toFixed(2)}%` : null,
+        status: 'moderate' as const
+    }
+]
 
 type HealthStatus = 'healthy' | 'moderate' | 'warning'
 
@@ -74,8 +107,22 @@ function MetricCard({ label, value, status }: { label: string; value: string; st
   )
 }
 
+const valueCheck = (value: string) => {
+    if (value == "0B" || value == "0%") {
+        return "N/A"
+    }
+
+    return value ? value : "N/A";
+}
+
 function App() {
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = useState('NVDA')
+  const { data, isLoading } = useSecurity(searchQuery);
+
+  const isMarketChangePos = data && data.regularMarketChangePercent 
+    ? data.regularMarketChangePercent > 0 
+    : false;
+
 
   return (
     <div className="min-h-screen bg-background p-6 md:p-10">
@@ -88,17 +135,27 @@ function App() {
 
         {/* Search Bar */}
         <div className="relative max-w-xl">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder="Search securities (e.g., AAPL, MSFT, GOOGL)"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 h-12 text-base"
-          />
+            <Select onValueChange={setSearchQuery} value={searchQuery}>
+                <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a ticker (i.e. NVDA)" />
+                </SelectTrigger>
+                <SelectContent>
+                    {Object.entries(availableTickers).map(([sector, tickers]) => (
+                      <SelectGroup key={sector}>
+                        <SelectLabel className="capitalize">{sector.replace('-', ' ')}</SelectLabel>
+                        {tickers.map((ticker) => (
+                          <SelectItem key={ticker} value={ticker}>
+                            {ticker}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
+                </SelectContent>
+            </Select>
         </div>
 
         {/* Main Content */}
+        { !isLoading &&
         <div className="grid gap-6 lg:grid-cols-5">
           {/* Left Section - Stock Info & Chart */}
           <div className="lg:col-span-3 space-y-6">
@@ -107,39 +164,40 @@ function App() {
               <CardHeader className="pb-4">
                 <div className="flex items-start justify-between">
                   <div className="space-y-1">
-                    <CardTitle className="text-2xl">{mockStockData.name}</CardTitle>
+                    <CardTitle className="text-2xl">{data.shortName}</CardTitle>
                     <CardDescription className="text-base font-medium">
-                      {mockStockData.ticker}
+                      {data.symbol}
                     </CardDescription>
                   </div>
                   <Badge
                     variant="secondary"
-                    className={mockStockData.isPositive
+                    className={isMarketChangePos
                       ? 'bg-emerald-500/15 text-emerald-700'
                       : 'bg-red-500/15 text-red-700'
                     }
                   >
-                    {mockStockData.isPositive ? (
+                    {isMarketChangePos ? (
                       <TrendingUp className="mr-1 h-3 w-3" />
                     ) : (
                       <TrendingDown className="mr-1 h-3 w-3" />
                     )}
-                    {mockStockData.isPositive ? '+' : ''}{mockStockData.changePercent}%
+                    {isMarketChangePos ? '+' : ''}{Math.abs(data.regularMarketChangePercent).toFixed(3)}%
                   </Badge>
                 </div>
                 <div className="flex items-baseline gap-3 pt-2">
-                  <span className="text-4xl font-bold">${mockStockData.price.toFixed(2)}</span>
+                  <span className="text-4xl font-bold">${data.regularMarketPrice}</span>
                   <span className={`flex items-center text-sm font-medium ${
-                    mockStockData.isPositive ? 'text-emerald-600' : 'text-red-600'
+                    isMarketChangePos ? 'text-emerald-600' : 'text-red-600'
                   }`}>
-                    {mockStockData.isPositive ? (
+                    {isMarketChangePos ? (
                       <ArrowUpRight className="h-4 w-4" />
                     ) : (
                       <ArrowDownRight className="h-4 w-4" />
                     )}
-                    ${Math.abs(mockStockData.change).toFixed(2)} today
+                    ${Math.abs(data.regularMarketChange).toFixed(2)} today
                   </span>
                 </div>
+                <div className="mt-3">{data.longBusinessSummary}</div>
               </CardHeader>
             </Card>
 
@@ -196,25 +254,22 @@ function App() {
                 <CardDescription>Key metrics and indicators</CardDescription>
               </CardHeader>
               <CardContent className="space-y-1">
-                <MetricCard label="EBITDA" value={mockMetrics.ebitda.value} status={mockMetrics.ebitda.status} />
-                <Separator />
-                <MetricCard label="P/E Ratio" value={mockMetrics.peRatio.value} status={mockMetrics.peRatio.status} />
-                <Separator />
-                <MetricCard label="Debt to Equity" value={mockMetrics.debtToEquity.value} status={mockMetrics.debtToEquity.status} />
-                <Separator />
-                <MetricCard label="Current Ratio" value={mockMetrics.currentRatio.value} status={mockMetrics.currentRatio.status} />
-                <Separator />
-                <MetricCard label="Gross Margin" value={mockMetrics.grossMargin.value} status={mockMetrics.grossMargin.status} />
-                <Separator />
-                <MetricCard label="Operating Margin" value={mockMetrics.operatingMargin.value} status={mockMetrics.operatingMargin.status} />
-                <Separator />
-                <MetricCard label="Free Cash Flow" value={mockMetrics.freeCashFlow.value} status={mockMetrics.freeCashFlow.status} />
-                <Separator />
-                <MetricCard label="Revenue Growth (YoY)" value={mockMetrics.revenueGrowth.value} status={mockMetrics.revenueGrowth.status} />
+                // Element, index, arr
+                {getMetricCards(data).map((metric, index, arr) => (
+                  <div key={metric.label}>
+                    <MetricCard
+                      label={metric.label}
+                      value={valueCheck(String(metric.value))}
+                      status={metric.status}
+                    />
+                    {index < arr.length - 1 && <Separator />}
+                  </div>
+                ))}
               </CardContent>
             </Card>
           </div>
         </div>
+        }
       </div>
     </div>
   )
