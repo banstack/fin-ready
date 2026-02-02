@@ -254,7 +254,6 @@ function App() {
                 <CardDescription>Key metrics and indicators</CardDescription>
               </CardHeader>
               <CardContent className="space-y-1">
-                // Element, index, arr
                 {getMetricCards(data).map((metric, index, arr) => (
                   <div key={metric.label}>
                     <MetricCard
