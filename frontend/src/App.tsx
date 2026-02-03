@@ -13,27 +13,38 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts'
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip as ChartTooltip,
+  Filler,
+} from 'chart.js'
+import { Line } from 'react-chartjs-2'
 
-import { useSecurity } from './hooks/useSecurityHooks'
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  ChartTooltip,
+  Filler
+)
+
+import { useSecurity, useHistorical } from './hooks/useSecurityHooks'
 import { availableTickers } from './constant'
 import { formatBillions } from './lib/utils'
 
-// Mock chart data (6 months)
-const mockChartData = [
-  { date: 'Aug', price: 175.84 },
-  { date: 'Sep', price: 171.21 },
-  { date: 'Oct', price: 170.77 },
-  { date: 'Nov', price: 189.95 },
-  { date: 'Dec', price: 193.60 },
-  { date: 'Jan', price: 178.72 },
+const periodOptions = [
+  { value: '1d', label: '1D', interval: '5m' },
+  { value: '1mo', label: '1M', interval: undefined },
+  { value: '6mo', label: '6M', interval: undefined },
+  { value: '1y', label: '1Y', interval: undefined },
+  { value: 'ytd', label: 'YTD', interval: undefined },
+  { value: 'max', label: 'MAX', interval: undefined },
 ]
 
 const getMetricCards = (data: Record<string, unknown>) => [
@@ -117,11 +128,36 @@ const valueCheck = (value: string) => {
 
 function App() {
   const [searchQuery, setSearchQuery] = useState('NVDA')
+  const [period, setPeriod] = useState('1mo')
   const { data, isLoading } = useSecurity(searchQuery);
 
-  const isMarketChangePos = data && data.regularMarketChangePercent 
-    ? data.regularMarketChangePercent > 0 
+  // Get interval for the selected period
+  const selectedPeriod = periodOptions.find((p) => p.value === period);
+  const interval = selectedPeriod?.interval;
+
+  const { data: historicalData, isLoading: isHistoricalLoading } = useHistorical(searchQuery, period, interval);
+
+  const isMarketChangePos = data && data.regularMarketChangePercent
+    ? data.regularMarketChangePercent > 0
     : false;
+
+  // Format historical data for chart (use time for intraday, date for daily)
+  const isIntraday = period === '1d';
+  const chartData = historicalData?.map((d) => {
+    const timestamp = d.Datetime || d.Date || '';
+    const dateObj = new Date(timestamp);
+    return {
+      date: isIntraday
+        ? dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+        : dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      price: d.Close,
+    };
+  }) ?? [];
+
+  // Determine if price trend is positive (green) or negative (red)
+  const isPositiveTrend = chartData.length > 1
+    ? chartData[chartData.length - 1].price > chartData[0].price
+    : true;
 
 
   return (
@@ -204,43 +240,77 @@ function App() {
             {/* Stock Chart */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Price History</CardTitle>
-                <CardDescription>Last 6 months performance</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg">Price History</CardTitle>
+                    <CardDescription>Historical price performance</CardDescription>
+                  </div>
+                  <div className="flex gap-1">
+                    {periodOptions.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setPeriod(opt.value)}
+                        className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                          period === opt.value
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted hover:bg-muted/80 text-muted-foreground'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="h-[300px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={mockChartData}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis
-                        dataKey="date"
-                        className="text-xs"
-                        tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                      />
-                      <YAxis
-                        domain={['dataMin - 5', 'dataMax + 5']}
-                        className="text-xs"
-                        tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                        tickFormatter={(value) => `$${value}`}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '8px',
-                        }}
-                        formatter={(value) => [`$${Number(value).toFixed(2)}`, 'Price']}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="price"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth={2}
-                        dot={{ fill: 'hsl(var(--primary))', strokeWidth: 2, r: 4 }}
-                        activeDot={{ r: 6 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  {isHistoricalLoading ? (
+                    <div className="h-full flex items-center justify-center text-muted-foreground">
+                      Loading chart data...
+                    </div>
+                  ) : chartData.length > 0 ? (
+                    <Line
+                      data={{
+                        labels: chartData.map((d) => d.date),
+                        datasets: [
+                          {
+                            label: 'Price',
+                            data: chartData.map((d) => d.price),
+                            fill: true,
+                            backgroundColor: isPositiveTrend ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                            borderColor: isPositiveTrend ? 'rgb(34, 197, 94)' : 'rgb(239, 68, 68)',
+                            borderWidth: 2,
+                            pointBackgroundColor: isPositiveTrend ? 'rgb(34, 197, 94)' : 'rgb(239, 68, 68)',
+                            pointRadius: chartData.length > 50 ? 0 : 4,
+                            pointHoverRadius: 6,
+                            tension: 0.4,
+                          },
+                        ],
+                      }}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          tooltip: {
+                            callbacks: {
+                              label: (context) => `$${(context.parsed.y ?? 0).toFixed(2)}`,
+                            },
+                          },
+                        },
+                        scales: {
+                          y: {
+                            ticks: {
+                              callback: (value: string | number) => `$${value}`,
+                            },
+                          },
+                        },
+                      }}
+                    />
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-muted-foreground">
+                      No data available
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
