@@ -1,50 +1,94 @@
 import { useState } from 'react'
-import { Search, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight } from 'lucide-react'
-import { Input } from '@/components/ui/input'
+import { TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts'
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip as ChartTooltip,
+  Filler,
+} from 'chart.js'
+import { Line } from 'react-chartjs-2'
 
-// Mock stock data
-const mockStockData = {
-  name: 'Apple Inc.',
-  ticker: 'AAPL',
-  price: 178.72,
-  change: 2.34,
-  changePercent: 1.33,
-  isPositive: true,
-}
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  ChartTooltip,
+  Filler
+)
 
-// Mock chart data (6 months)
-const mockChartData = [
-  { date: 'Aug', price: 175.84 },
-  { date: 'Sep', price: 171.21 },
-  { date: 'Oct', price: 170.77 },
-  { date: 'Nov', price: 189.95 },
-  { date: 'Dec', price: 193.60 },
-  { date: 'Jan', price: 178.72 },
+import { useSecurity, useHistorical } from './hooks/useSecurityHooks'
+import { availableTickers } from './constant'
+import { formatBillions } from './lib/utils'
+
+const periodOptions = [
+  { value: '1d', label: '1D', interval: '5m' },
+  { value: '1mo', label: '1M', interval: undefined },
+  { value: '6mo', label: '6M', interval: undefined },
+  { value: '1y', label: '1Y', interval: undefined },
+  { value: 'ytd', label: 'YTD', interval: undefined },
+  { value: 'max', label: 'MAX', interval: undefined },
 ]
 
-// Mock financial metrics
-const mockMetrics = {
-  ebitda: { value: '123.9B', status: 'healthy' as const },
-  peRatio: { value: '28.4', status: 'moderate' as const },
-  debtToEquity: { value: '1.87', status: 'moderate' as const },
-  currentRatio: { value: '0.94', status: 'warning' as const },
-  grossMargin: { value: '45.9%', status: 'healthy' as const },
-  operatingMargin: { value: '29.8%', status: 'healthy' as const },
-  freeCashFlow: { value: '99.6B', status: 'healthy' as const },
-  revenueGrowth: { value: '-2.8%', status: 'warning' as const },
-}
+const getMetricCards = (data: Record<string, unknown>) => [
+    {
+        label: "EBITDA",
+        value: formatBillions(data.ebitda as number),
+        status: 'healthy' as const
+    },
+    {
+        label: "P/E Ratio",
+        value: data.trailingPE ? Math.abs(data.trailingPE as number).toFixed(2) : null,
+        status: 'healthy' as const
+    },
+    {
+        label: "Debt to Equity",
+        value: data.debtToEquity,
+        status: 'healthy' as const
+    },
+    {
+        label: "Current Ratio",
+        value: data.currentRatio,
+        status: 'moderate' as const
+    },
+    {
+        label: "Gross Margin",
+        value: data.grossMargins ? `${((data.grossMargins as number) * 100).toFixed(2)}%` : null,
+        status: 'healthy' as const
+    },
+    {
+        label: "Operating Margin",
+        value: data.operatingMargins ? `${Math.abs((data.operatingMargins as number) * 100).toFixed(2)}%` : null,
+        status: 'healthy' as const
+    },
+    {
+        label: "Free Cash Flow",
+        value: formatBillions(data.freeCashflow as number),
+        status: 'healthy' as const
+    },
+    {
+        label: "Revenue Growth (YoY)",
+        value: data.revenueGrowth ? `${Math.abs((data.revenueGrowth as number) * 100).toFixed(2)}%` : null,
+        status: 'moderate' as const
+    }
+]
 
 type HealthStatus = 'healthy' | 'moderate' | 'warning'
 
@@ -74,8 +118,47 @@ function MetricCard({ label, value, status }: { label: string; value: string; st
   )
 }
 
+const valueCheck = (value: string) => {
+    if (value == "0B" || value == "0%") {
+        return "N/A"
+    }
+
+    return value ? value : "N/A";
+}
+
 function App() {
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = useState('NVDA')
+  const [period, setPeriod] = useState('1mo')
+  const { data, isLoading } = useSecurity(searchQuery);
+
+  // Get interval for the selected period
+  const selectedPeriod = periodOptions.find((p) => p.value === period);
+  const interval = selectedPeriod?.interval;
+
+  const { data: historicalData, isLoading: isHistoricalLoading } = useHistorical(searchQuery, period, interval);
+
+  const isMarketChangePos = data && data.regularMarketChangePercent
+    ? data.regularMarketChangePercent > 0
+    : false;
+
+  // Format historical data for chart (use time for intraday, date for daily)
+  const isIntraday = period === '1d';
+  const chartData = historicalData?.map((d) => {
+    const timestamp = d.Datetime || d.Date || '';
+    const dateObj = new Date(timestamp);
+    return {
+      date: isIntraday
+        ? dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+        : dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      price: d.Close,
+    };
+  }) ?? [];
+
+  // Determine if price trend is positive (green) or negative (red)
+  const isPositiveTrend = chartData.length > 1
+    ? chartData[chartData.length - 1].price > chartData[0].price
+    : true;
+
 
   return (
     <div className="min-h-screen bg-background p-6 md:p-10">
@@ -88,17 +171,27 @@ function App() {
 
         {/* Search Bar */}
         <div className="relative max-w-xl">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="text"
-            placeholder="Search securities (e.g., AAPL, MSFT, GOOGL)"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 h-12 text-base"
-          />
+            <Select onValueChange={setSearchQuery} value={searchQuery}>
+                <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a ticker (i.e. NVDA)" />
+                </SelectTrigger>
+                <SelectContent>
+                    {Object.entries(availableTickers).map(([sector, tickers]) => (
+                      <SelectGroup key={sector}>
+                        <SelectLabel className="capitalize">{sector.replace('-', ' ')}</SelectLabel>
+                        {tickers.map((ticker) => (
+                          <SelectItem key={ticker} value={ticker}>
+                            {ticker}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
+                </SelectContent>
+            </Select>
         </div>
 
         {/* Main Content */}
+        { !isLoading &&
         <div className="grid gap-6 lg:grid-cols-5">
           {/* Left Section - Stock Info & Chart */}
           <div className="lg:col-span-3 space-y-6">
@@ -107,82 +200,117 @@ function App() {
               <CardHeader className="pb-4">
                 <div className="flex items-start justify-between">
                   <div className="space-y-1">
-                    <CardTitle className="text-2xl">{mockStockData.name}</CardTitle>
+                    <CardTitle className="text-2xl">{data.shortName}</CardTitle>
                     <CardDescription className="text-base font-medium">
-                      {mockStockData.ticker}
+                      {data.symbol}
                     </CardDescription>
                   </div>
                   <Badge
                     variant="secondary"
-                    className={mockStockData.isPositive
+                    className={isMarketChangePos
                       ? 'bg-emerald-500/15 text-emerald-700'
                       : 'bg-red-500/15 text-red-700'
                     }
                   >
-                    {mockStockData.isPositive ? (
+                    {isMarketChangePos ? (
                       <TrendingUp className="mr-1 h-3 w-3" />
                     ) : (
                       <TrendingDown className="mr-1 h-3 w-3" />
                     )}
-                    {mockStockData.isPositive ? '+' : ''}{mockStockData.changePercent}%
+                    {isMarketChangePos ? '+' : ''}{Math.abs(data.regularMarketChangePercent).toFixed(3)}%
                   </Badge>
                 </div>
                 <div className="flex items-baseline gap-3 pt-2">
-                  <span className="text-4xl font-bold">${mockStockData.price.toFixed(2)}</span>
+                  <span className="text-4xl font-bold">${data.regularMarketPrice}</span>
                   <span className={`flex items-center text-sm font-medium ${
-                    mockStockData.isPositive ? 'text-emerald-600' : 'text-red-600'
+                    isMarketChangePos ? 'text-emerald-600' : 'text-red-600'
                   }`}>
-                    {mockStockData.isPositive ? (
+                    {isMarketChangePos ? (
                       <ArrowUpRight className="h-4 w-4" />
                     ) : (
                       <ArrowDownRight className="h-4 w-4" />
                     )}
-                    ${Math.abs(mockStockData.change).toFixed(2)} today
+                    ${Math.abs(data.regularMarketChange).toFixed(2)} today
                   </span>
                 </div>
+                <div className="mt-3">{data.longBusinessSummary}</div>
               </CardHeader>
             </Card>
 
             {/* Stock Chart */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Price History</CardTitle>
-                <CardDescription>Last 6 months performance</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg">Price History</CardTitle>
+                    <CardDescription>Historical price performance</CardDescription>
+                  </div>
+                  <div className="flex gap-1">
+                    {periodOptions.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setPeriod(opt.value)}
+                        className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                          period === opt.value
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted hover:bg-muted/80 text-muted-foreground'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="h-[300px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={mockChartData}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis
-                        dataKey="date"
-                        className="text-xs"
-                        tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                      />
-                      <YAxis
-                        domain={['dataMin - 5', 'dataMax + 5']}
-                        className="text-xs"
-                        tick={{ fill: 'hsl(var(--muted-foreground))' }}
-                        tickFormatter={(value) => `$${value}`}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: 'hsl(var(--card))',
-                          border: '1px solid hsl(var(--border))',
-                          borderRadius: '8px',
-                        }}
-                        formatter={(value) => [`$${Number(value).toFixed(2)}`, 'Price']}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="price"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth={2}
-                        dot={{ fill: 'hsl(var(--primary))', strokeWidth: 2, r: 4 }}
-                        activeDot={{ r: 6 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  {isHistoricalLoading ? (
+                    <div className="h-full flex items-center justify-center text-muted-foreground">
+                      Loading chart data...
+                    </div>
+                  ) : chartData.length > 0 ? (
+                    <Line
+                      data={{
+                        labels: chartData.map((d) => d.date),
+                        datasets: [
+                          {
+                            label: 'Price',
+                            data: chartData.map((d) => d.price),
+                            fill: true,
+                            backgroundColor: isPositiveTrend ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                            borderColor: isPositiveTrend ? 'rgb(34, 197, 94)' : 'rgb(239, 68, 68)',
+                            borderWidth: 2,
+                            pointBackgroundColor: isPositiveTrend ? 'rgb(34, 197, 94)' : 'rgb(239, 68, 68)',
+                            pointRadius: chartData.length > 50 ? 0 : 4,
+                            pointHoverRadius: 6,
+                            tension: 0.4,
+                          },
+                        ],
+                      }}
+                      options={{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          tooltip: {
+                            callbacks: {
+                              label: (context) => `$${(context.parsed.y ?? 0).toFixed(2)}`,
+                            },
+                          },
+                        },
+                        scales: {
+                          y: {
+                            ticks: {
+                              callback: (value: string | number) => `$${value}`,
+                            },
+                          },
+                        },
+                      }}
+                    />
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-muted-foreground">
+                      No data available
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -196,25 +324,21 @@ function App() {
                 <CardDescription>Key metrics and indicators</CardDescription>
               </CardHeader>
               <CardContent className="space-y-1">
-                <MetricCard label="EBITDA" value={mockMetrics.ebitda.value} status={mockMetrics.ebitda.status} />
-                <Separator />
-                <MetricCard label="P/E Ratio" value={mockMetrics.peRatio.value} status={mockMetrics.peRatio.status} />
-                <Separator />
-                <MetricCard label="Debt to Equity" value={mockMetrics.debtToEquity.value} status={mockMetrics.debtToEquity.status} />
-                <Separator />
-                <MetricCard label="Current Ratio" value={mockMetrics.currentRatio.value} status={mockMetrics.currentRatio.status} />
-                <Separator />
-                <MetricCard label="Gross Margin" value={mockMetrics.grossMargin.value} status={mockMetrics.grossMargin.status} />
-                <Separator />
-                <MetricCard label="Operating Margin" value={mockMetrics.operatingMargin.value} status={mockMetrics.operatingMargin.status} />
-                <Separator />
-                <MetricCard label="Free Cash Flow" value={mockMetrics.freeCashFlow.value} status={mockMetrics.freeCashFlow.status} />
-                <Separator />
-                <MetricCard label="Revenue Growth (YoY)" value={mockMetrics.revenueGrowth.value} status={mockMetrics.revenueGrowth.status} />
+                {getMetricCards(data).map((metric, index, arr) => (
+                  <div key={metric.label}>
+                    <MetricCard
+                      label={metric.label}
+                      value={valueCheck(String(metric.value))}
+                      status={metric.status}
+                    />
+                    {index < arr.length - 1 && <Separator />}
+                  </div>
+                ))}
               </CardContent>
             </Card>
           </div>
         </div>
+        }
       </div>
     </div>
   )

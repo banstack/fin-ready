@@ -34,10 +34,14 @@ def read_root():
     Example query string: /historical/NVDA?period=1d
 """
 @app.get("/api/v1/historical/{security_ticker}")
-async def fetch_historical_security_data(security_ticker: str, period: str):
-    if period:
-        security_data = service.fetch_historical_security_data(security_ticker, period)
-    return security_data
+async def fetch_historical_security_data(
+    security_ticker: str,
+    period: str,
+    interval: str | None = None
+):
+    if interval:
+        return service.fetch_historical_interval_data(security_ticker, period, interval)
+    return service.fetch_historical_security_data(security_ticker, period)
 
 """
     Get data pertaining to security (includes basic financials)
