@@ -8,6 +8,7 @@ interface TickerSearchProps {
   onSelect: (ticker: string) => void
   placeholder?: string
   className?: string
+  dropdownDirection?: 'up' | 'down'
 }
 
 interface TickerEntry {
@@ -26,7 +27,7 @@ const allTickers: TickerEntry[] = Object.entries(availableTickers).flatMap(
     }))
 )
 
-export function TickerSearch({ onSelect, placeholder = "Search by name or ticker (e.g. Nvidia, AAPL)", className }: TickerSearchProps) {
+export function TickerSearch({ onSelect, placeholder = "Search by name or ticker (e.g. Nvidia, AAPL)", className, dropdownDirection = 'up' }: TickerSearchProps) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -83,7 +84,7 @@ export function TickerSearch({ onSelect, placeholder = "Search by name or ticker
       />
 
       {open && (
-        <div className="absolute left-0 right-0 z-50 bottom-full mb-1 max-h-64 overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md">
+        <div className={cn("absolute left-0 right-0 z-50 max-h-64 overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md", dropdownDirection === 'up' ? "bottom-full mb-1" : "top-full mt-1")}>
           {Object.keys(grouped).length === 0 ? (
             <div className="px-3 py-4 text-center text-sm text-muted-foreground">
               No results found

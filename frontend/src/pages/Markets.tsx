@@ -106,6 +106,7 @@ export function Markets() {
             <TickerSearch
               onSelect={handleSelectTicker}
               className="w-full max-w-lg"
+              dropdownDirection="down"
             />
           </div>
 
