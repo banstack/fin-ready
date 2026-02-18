@@ -1,5 +1,9 @@
+# Standard libraries
+from typing import Optional
+# API libraries
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+# Our services
 from . import service
 
 """
@@ -37,7 +41,7 @@ def read_root():
 async def fetch_historical_security_data(
     security_ticker: str,
     period: str,
-    interval: str | None = None
+    interval: Optional[str] = None
 ):
     if interval:
         return service.fetch_historical_interval_data(security_ticker, period, interval)
