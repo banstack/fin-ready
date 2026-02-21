@@ -53,3 +53,4 @@ test.db
 
 # Logs
 *.log
+*.csv

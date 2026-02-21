@@ -1,11 +1,16 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.api.v1 import securities
+from app.core.config import config
+from app.core.logger import setup_custom_logger
+
+setup_custom_logger("FinReady")
 
 app = FastAPI(
-    title="FinReady API",
-    description="API that connects you to yfinance data",
-    version="1.0.0"
+    title=config.app_name,
+    description=config.description,
+    version=config.version
 )
 
 # CORS middleware
